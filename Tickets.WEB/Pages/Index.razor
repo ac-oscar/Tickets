@@ -1,0 +1,136 @@
+﻿@page "/"
+@inject IRepository repository
+@inject SweetAlertService sweetAlertService
+@using Ticket = Tickets.Shared.Entities.Ticket
+
+<PageTitle>Tickets</PageTitle>
+
+<EditForm EditContext="editContext" OnValidSubmit="onValidSubmit">
+    <DataAnnotationsValidator />
+
+    <div class="card col-xs-12 col-md-6 offset-md-3">
+        <div class="card-header">
+            <span>Tiquetera ITM</span>
+        </div>
+        <div class="card-body">
+            <div class="my-3">
+                <label>Numero de Ticket:</label>
+                <div>
+                    <InputText class="form-control" @bind-Value="@ticketDTO.TicketId" />
+                    <ValidationMessage For="@(() => ticketDTO.TicketId)" />
+                </div>
+            </div>
+            <div class="mb-3">
+                <label>Portería</label>
+                <div>
+                    <select class="form-select" @bind="ticketDTO.Entrance" disabled="@isSelectDisabled">
+
+                        @foreach (var entrance in Enum.GetNames(typeof(EntranceType)))
+                        {
+                            <option value="@entrance">@entrance</option>
+                        }
+
+                    </select>
+                    <ValidationMessage For="@(() => ticketDTO.Entrance)" />
+                </div>
+            </div>
+        </div>
+        <div class="card-footer d-flex justify-content-center">
+            @if (ticket.TicketId != null)
+            {
+                <button class="btn btn-success btn-lg btn-block" type="submit">Guardar Cambios</button>
+            }
+            else
+            {
+                <button class="btn btn-primary btn-lg btn-block" type="submit">Validar</button>
+            }
+        </div>
+    </div>
+
+</EditForm>
+
+@code {
+    private Ticket ticket = new();
+    private TicketDTO ticketDTO = new();
+
+    private EditContext editContext = null!;
+
+    private bool isSelectDisabled { get; set; } = true;
+
+    private bool isValidTicket { get; set; } = false;
+
+    protected override void OnInitialized()
+    {
+        editContext = new(ticketDTO);
+    }
+
+    private async Task onValidSubmit()
+    {
+        if (isValidTicket)
+        {
+            await EditAsync();
+        }
+        else
+        {
+            await GetAsync();
+        }
+    }
+
+    private async Task GetAsync()
+    {
+        try
+        {
+            var httpResponse = await repository.Get<Ticket>($"/api/ticket/{ticketDTO.TicketId}");
+
+            if (httpResponse.Error)
+            {
+                var message = await httpResponse.GetErrorMessageAsync();
+
+                await sweetAlertService.FireAsync("Error", message, SweetAlertIcon.Error);
+                return;
+            }
+
+            ticket = httpResponse.Response!;
+
+            if (ticket.isUsed)
+            {
+                await sweetAlertService.FireAsync("Error", $"Esta boleta fue usada en la fecha {ticket.UseDate.ToString()} y se registró en la portería {ticket.Entrance}", SweetAlertIcon.Info);
+
+                ticket = new Ticket();
+                return;
+            }
+
+            isValidTicket = true;
+            isSelectDisabled = false;
+        }
+        catch (Exception ex)
+        {
+            await sweetAlertService.FireAsync("Error", ex.Message, SweetAlertIcon.Error);
+            return;
+        }
+
+    }
+
+    private async Task EditAsync()
+    {
+        ticket.isUsed = true;
+        ticket.UseDate = DateTime.Now;
+        ticket.Entrance = ticketDTO.Entrance;
+
+        var httpResponse = await repository.Put("/api/ticket", ticket);
+
+        if (httpResponse.Error)
+        {
+            var message = await httpResponse.GetErrorMessageAsync();
+
+            await sweetAlertService.FireAsync("Error", message, SweetAlertIcon.Error);
+            return;
+        }
+
+        await sweetAlertService.FireAsync("Confirmación", "Su ticket quedó registrado correctamente, puede avanzar", SweetAlertIcon.Success);
+
+        isSelectDisabled = true;
+        isValidTicket = false;
+        ticket = new Ticket();
+    }
+}
